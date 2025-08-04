@@ -1,79 +1,54 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
-console.log('Book page ratings script started');
-console.log('Vue:', typeof Vue !== 'undefined' ? 'Loaded' : 'Not loaded');
-console.log('jQuery:', typeof $ !== 'undefined' ? 'Loaded' : 'Not loaded');
+console.log('Book page script started at', new Date().toLocaleString());
 
 const supabase = createClient(
   'https://ogwhskbvowkkwdvtguwx.supabase.co',
   'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im9nd2hza2J2b3dra3dkdnRndXd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM5ODI4NzAsImV4cCI6MjA2OTU1ODg3MH0.B-EjyhvIhce6BH5xRyb4cJe1gvkkD4B3i6z9mhRSyYg'
 );
 
-Vue.component("rating", {
+Vue.component("rating-display", {
   props: {
-    rates: { type: Array, required: true },
-    starCount: { type: Number, required: false, default: 5 },
-    name: { type: String, required: false, default: "unnamed" },
     bookId: { type: String, required: true }
   },
+  data() {
+    return {
+      averageRating: 0,
+      userRating: 0,
+      showUserVote: true,
+      popupVisible: false,
+      hoverRating: 0 // For hover effect
+    };
+  },
   methods: {
-    getRating: function() {
-      return this.rates.length ? (this.rates.reduce((sum, rate) => sum + rate, 0) / this.rates.length).toFixed(1) : '0.0';
-    },
-    getStarValue: function(e, attr) {
-      return parseInt(e.target.attributes[attr].value);
-    },
-    setRatingValue: function(value, options) {
-      options = options || { removeClass: true };
-      const $value = $(`#w-${this.widgetID} .rating__value`);
-      if (options.removeClass) {
-        $value.removeClass("rating__value--binding");
-      } else {
-        $value.addClass("rating__value--binding");
-      }
-      $value.children(".number").html(value).siblings(".number__animation").html(value);
-    },
-    hasTargetAttr: function(e, attr) {
-      return typeof(e.target.attributes[attr]) !== "undefined";
-    },
-    uniqueRating: function() {
-      const chars = ["abcdefghijklmnopqrstuvwxy", "ABCDEFGHIJKLMNOPQRSTUVWXY", "0123456789"];
-      let res = "";
-      for (let i = 0; i < 50; i++) {
-        const ch_select = Math.floor(Math.random() * chars.length);
-        const ch_select_length = Math.floor(Math.random() * chars[ch_select].length);
-        res += chars[ch_select].charAt(ch_select_length);
-      }
-      return res;
-    },
-    starOff: function() {
-      $(`#w-${this.widgetID} .star`).removeClass("active");
-      this.setRatingValue(this.getRating());
-    },
-    starOn: function(e, x) {
-      $(`#w-${this.widgetID} .star`).removeClass("active");
-      const is_index = this.hasTargetAttr(e, "data-index");
-      const is_index_half = this.hasTargetAttr(e, "data-index-half");
-      for (let i = 1; i <= x; i++) {
-        if (is_index) {
-          $(`#w-${this.widgetID} .star[data-index-half=${i}]`).addClass("active");
-          $(`#w-${this.widgetID} .star[data-index=${i}]`).addClass("active");
-          this.setRatingValue(this.getStarValue(e, "data-index").toFixed(1), { removeClass: false });
-        } else if (is_index_half) {
-          $(`#w-${this.widgetID} .star[data-index-half=${i}]`).addClass("active");
-          $(`#w-${this.widgetID} .star[data-index=${i - 1}]`).addClass("active");
-          this.setRatingValue((this.getStarValue(e, "data-index-half") - 0.5).toFixed(1), { removeClass: false });
-        }
-      }
-    },
-    rate: async function(e) {
-      let currentRating = 0;
-      if (this.hasTargetAttr(e, "data-index")) {
-        currentRating = this.getStarValue(e, "data-index");
-      } else if (this.hasTargetAttr(e, "data-index-half")) {
-        currentRating = this.getStarValue(e, "data-index-half") - 0.5;
+    async fetchRatings() {
+      const { data: userRatingData, error: userError } = await supabase
+        .from('book_ratings')
+        .select('rating')
+        .eq('book_id', this.bookId)
+        .eq('user_id', localStorage.getItem('user_id') || crypto.randomUUID())
+        .single();
+
+      if (userError && userError.code !== 'PGRST116') {
+        console.error('Error fetching user rating:', userError.message);
+      } else if (userRatingData) {
+        this.userRating = userRatingData.rating;
       }
 
+      const { data, error } = await supabase
+        .from('book_ratings')
+        .select('rating')
+        .eq('book_id', this.bookId);
+      if (error) {
+        console.error('Error fetching average ratings:', error.message);
+      } else {
+        this.averageRating = data.length ? (data.reduce((sum, r) => sum + r.rating, 0) / data.length).toFixed(1) : 0;
+      }
+      this.$nextTick(() => {
+        this.updateStars(this.showUserVote ? this.userRating : this.averageRating, this.$el.querySelectorAll('.stars.active .star'));
+      });
+    },
+    async rate(rating) {
       let userId = localStorage.getItem('user_id');
       if (!userId) {
         userId = crypto.randomUUID();
@@ -82,7 +57,7 @@ Vue.component("rating", {
 
       const { data: existingRating, error: checkError } = await supabase
         .from('book_ratings')
-        .select('id')
+        .select('id, rating')
         .eq('book_id', this.bookId)
         .eq('user_id', userId)
         .single();
@@ -95,96 +70,90 @@ Vue.component("rating", {
       if (existingRating) {
         const { error } = await supabase
           .from('book_ratings')
-          .update({ rating: currentRating })
+          .update({ rating })
           .eq('id', existingRating.id);
-        if (error) {
-          console.error('Error updating rating:', error.message);
-        } else {
-          console.log(`Updated rating for ${this.bookId}: ${currentRating}`);
-        }
+        if (error) console.error('Error updating rating:', error.message);
       } else {
         const { error } = await supabase
           .from('book_ratings')
-          .insert([{ book_id: this.bookId, user_id: userId, rating: currentRating }]);
-        if (error) {
-          console.error('Error inserting rating:', error.message);
-        } else {
-          console.log(`Rated ${this.bookId}: ${currentRating}`);
-        }
+          .insert([{ book_id: this.bookId, user_id: userId, rating }]);
+        if (error) console.error('Error inserting rating:', error.message);
       }
 
-      const { data, error } = await supabase
-        .from('book_ratings')
-        .select('rating')
-        .eq('book_id', this.bookId);
-      if (error) {
-        console.error('Error fetching ratings:', error.message);
-        return;
-      }
-
-      this.rates = data.map(r => r.rating);
-      this.rating = this.getRating();
-
-      $(`#w-${this.widgetID} .number__animation`)
-        .addClass("number__animation--bounce");
-      setTimeout(() => {
-        $(`#w-${this.widgetID} .number__animation`)
-          .removeClass("number__animation--bounce");
-      }, 300);
+      this.userRating = rating;
+      this.showPopup();
+      this.updateStars(this.userRating, this.$el.querySelectorAll('.user-stars .star'));
+      await this.fetchRatings();
+    },
+    updateStars(rating, stars) {
+      stars.forEach(star => {
+        const value = parseInt(star.dataset.value || star.getAttribute('data-value'));
+        star.classList.toggle('filled', value <= rating);
+      });
+    },
+    toggleView(type) {
+      this.showUserVote = type === 'user';
+      this.hoverRating = 0;
+      this.$nextTick(() => {
+        this.updateStars(this.showUserVote ? this.userRating : this.averageRating, this.$el.querySelectorAll('.stars.active .star'));
+      });
+    },
+    showPopup() {
+      this.popupVisible = true;
+      setTimeout(() => { this.popupVisible = false; }, 2000);
+    },
+    onStarHover(index) {
+      this.hoverRating = index;
+      this.updateStars(this.hoverRating, this.$el.querySelectorAll('.user-stars .star'));
+    },
+    onStarLeave() {
+      this.hoverRating = 0;
+      this.updateStars(this.userRating, this.$el.querySelectorAll('.user-stars .star'));
+    },
+    getDisplayRating() {
+      return this.showUserVote ? this.userRating : this.averageRating;
     }
   },
-  data: function() {
-    return {
-      rates: [],
-      rating: '0.0',
-      widgetID: this.uniqueRating()
-    };
-  },
-  async created() {
-    console.log(`Fetching ratings for book: ${this.bookId}`);
-    const { data, error } = await supabase
-      .from('book_ratings')
-      .select('rating')
-      .eq('book_id', this.bookId);
-    if (error) {
-      console.error(`Error fetching ratings for ${this.bookId}:`, error.message);
-    } else {
-      this.rates = data.map(r => r.rating);
-      this.rating = this.getRating();
-      console.log(`Ratings for ${this.bookId}:`, this.rates);
+  computed: {
+    activeRating() {
+      return this.showUserVote ? this.userRating : this.averageRating;
     }
+  },
+  created() {
+    this.fetchRatings();
+  },
+  mounted() {
+    const userStars = this.$el.querySelectorAll('.user-stars .star');
+    userStars.forEach((star, index) => {
+      star.addEventListener('click', () => this.rate(parseInt(star.dataset.value)));
+      star.addEventListener('mouseover', () => this.onStarHover(parseInt(star.dataset.value)));
+      star.addEventListener('mouseleave', this.onStarLeave);
+    });
+    this.updateStars(this.averageRating, this.$el.querySelectorAll('.avg-stars .star'));
   },
   template: `
-    <div class="rating" :id="'w-' + widgetID">
-      <div class="stars">
-        <template v-for="x in starCount">
-          <div class="star__wrapper"
-               v-on:mouseover="starOn($event, x)"
-               v-on:mouseleave="starOff()"
-               v-on:click="rate($event)">
-            <span class="star"
-                  :class="{ selected: x - 1 < rating }"
-                  :data-index-half="x"></span>
-            <span class="star"
-                  :class="{ selected: x <= rating }"
-                  :data-index="x"></span>
-          </div>
-        </template>
+    <div class="rating-container">
+      <div class="c-rating__badge" :style="{ backgroundColor: showUserVote ? '#EFB523' : '#f8c264' }">
+        {{ getDisplayRating() }} <!-- Added () to invoke the method -->
       </div>
-      <div class="rating__value">
-        <div class="number">{{rating}}</div>
-        <div class="number__animation">{{rating}}</div>
+      <div class="rating-toggle">
+        <div class="stars user-stars" :class="{ 'active': showUserVote }">
+          <span v-for="n in 5" :key="n" :data-value="n" class="star">&#9733;</span>
+        </div>
+        <div class="stars avg-stars" :class="{ 'active': !showUserVote }">
+          <span v-for="n in 5" :key="n" :data-value="n" :class="{ 'filled': n <= averageRating }" class="star">&#9733;</span>
+        </div>
+        <div class="rating-labels">
+          <span class="label user-label" :class="{ 'active': showUserVote }" @click="toggleView('user')">رای شما</span>
+          <span class="divider-line"></span>
+          <span class="label avg-label" :class="{ 'active': !showUserVote }" @click="toggleView('avg')">میانگین</span>
+        </div>
       </div>
+      <div v-if="popupVisible" class="rating-popup">رای شما ثبت شد</div>
     </div>
   `
 });
 
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('Book page DOM loaded');
-  const app = document.querySelector('#rating-app');
-  if (app) {
-    new Vue({ el: '#rating-app' });
-  } else {
-    console.error('Rating app element not found');
-  }
+new Vue({
+  el: ".app"
 });
