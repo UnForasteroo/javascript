@@ -1,6 +1,8 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm';
 
 console.log('Book page ratings script started');
+console.log('Vue:', typeof Vue !== 'undefined' ? 'Loaded' : 'Not loaded');
+console.log('jQuery:', typeof $ !== 'undefined' ? 'Loaded' : 'Not loaded');
 
 const supabase = createClient(
   'https://ogwhskbvowkkwdvtguwx.supabase.co',
@@ -23,64 +25,61 @@ Vue.component("rating", {
     },
     setRatingValue: function(value, options) {
       options = options || { removeClass: true };
+      const $value = $(`#w-${this.widgetID} .rating__value`);
       if (options.removeClass) {
-        $("#w-" + this.widgetID + " .rating__value").removeClass("rating__value--binding");
+        $value.removeClass("rating__value--binding");
       } else {
-        $("#w-" + this.widgetID + " .rating__value").addClass("rating__value--binding");
+        $value.addClass("rating__value--binding");
       }
-      $("#w-" + this.widgetID + " .rating__value")
-        .children(".number").html(value)
-        .siblings(".number__animation").html(value);
+      $value.children(".number").html(value).siblings(".number__animation").html(value);
     },
     hasTargetAttr: function(e, attr) {
-      return typeof(e.target.attributes[attr]) != "undefined";
+      return typeof(e.target.attributes[attr]) !== "undefined";
     },
     uniqueRating: function() {
-      var chars = ["abcdefghijklmnopqrstuvwxy", "ABCDEFGHIJKLMNOPQRSTUVWXY", "0123456789"];
-      var res = "";
-      for (var i = 0; i < 50; i++) {
-        var ch_select = Math.floor(Math.random() * chars.length),
-            ch_select_length = Math.floor(Math.random() * chars[ch_select].length);
+      const chars = ["abcdefghijklmnopqrstuvwxy", "ABCDEFGHIJKLMNOPQRSTUVWXY", "0123456789"];
+      let res = "";
+      for (let i = 0; i < 50; i++) {
+        const ch_select = Math.floor(Math.random() * chars.length);
+        const ch_select_length = Math.floor(Math.random() * chars[ch_select].length);
         res += chars[ch_select].charAt(ch_select_length);
       }
       return res;
     },
     starOff: function() {
-      $(".star").removeClass("active");
+      $(`#w-${this.widgetID} .star`).removeClass("active");
       this.setRatingValue(this.getRating());
     },
     starOn: function(e, x) {
-      $(".star").removeClass("active");
-      var is_index = this.hasTargetAttr(e, "data-index"),
-          is_index_half = this.hasTargetAttr(e, "data-index-half");
-      for (var i = 1; i <= x; i++) {
+      $(`#w-${this.widgetID} .star`).removeClass("active");
+      const is_index = this.hasTargetAttr(e, "data-index");
+      const is_index_half = this.hasTargetAttr(e, "data-index-half");
+      for (let i = 1; i <= x; i++) {
         if (is_index) {
-          $("#w-" + this.widgetID + " .star[data-index-half=" + i + "]").addClass("active");
-          $("#w-" + this.widgetID + " .star[data-index=" + i + "]").addClass("active");
+          $(`#w-${this.widgetID} .star[data-index-half=${i}]`).addClass("active");
+          $(`#w-${this.widgetID} .star[data-index=${i}]`).addClass("active");
           this.setRatingValue(this.getStarValue(e, "data-index").toFixed(1), { removeClass: false });
-        } else {
-          $("#w-" + this.widgetID + " .star[data-index-half=" + i + "]").addClass("active");
-          $("#w-" + this.widgetID + " .star[data-index=" + (i - 1) + "]").addClass("active");
+        } else if (is_index_half) {
+          $(`#w-${this.widgetID} .star[data-index-half=${i}]`).addClass("active");
+          $(`#w-${this.widgetID} .star[data-index=${i - 1}]`).addClass("active");
           this.setRatingValue((this.getStarValue(e, "data-index-half") - 0.5).toFixed(1), { removeClass: false });
         }
       }
     },
     rate: async function(e) {
-      var currentRating = 0;
+      let currentRating = 0;
       if (this.hasTargetAttr(e, "data-index")) {
         currentRating = this.getStarValue(e, "data-index");
       } else if (this.hasTargetAttr(e, "data-index-half")) {
         currentRating = this.getStarValue(e, "data-index-half") - 0.5;
       }
 
-      // Get or generate user_id
       let userId = localStorage.getItem('user_id');
       if (!userId) {
         userId = crypto.randomUUID();
         localStorage.setItem('user_id', userId);
       }
 
-      // Check for existing rating
       const { data: existingRating, error: checkError } = await supabase
         .from('book_ratings')
         .select('id')
@@ -114,7 +113,6 @@ Vue.component("rating", {
         }
       }
 
-      // Fetch updated ratings
       const { data, error } = await supabase
         .from('book_ratings')
         .select('rating')
@@ -127,10 +125,10 @@ Vue.component("rating", {
       this.rates = data.map(r => r.rating);
       this.rating = this.getRating();
 
-      $("#w-" + this.widgetID + " .number__animation")
+      $(`#w-${this.widgetID} .number__animation`)
         .addClass("number__animation--bounce");
       setTimeout(() => {
-        $("#w-" + this.widgetID + " .number__animation")
+        $(`#w-${this.widgetID} .number__animation`)
           .removeClass("number__animation--bounce");
       }, 300);
     }
@@ -143,16 +141,17 @@ Vue.component("rating", {
     };
   },
   async created() {
-    // Fetch initial ratings from Supabase
+    console.log(`Fetching ratings for book: ${this.bookId}`);
     const { data, error } = await supabase
       .from('book_ratings')
       .select('rating')
       .eq('book_id', this.bookId);
     if (error) {
-      console.error('Error fetching initial ratings:', error.message);
+      console.error(`Error fetching ratings for ${this.bookId}:`, error.message);
     } else {
       this.rates = data.map(r => r.rating);
       this.rating = this.getRating();
+      console.log(`Ratings for ${this.bookId}:`, this.rates);
     }
   },
   template: `
@@ -162,7 +161,7 @@ Vue.component("rating", {
           <div class="star__wrapper"
                v-on:mouseover="starOn($event, x)"
                v-on:mouseleave="starOff()"
-               v-on:click="rate($event, x)">
+               v-on:click="rate($event)">
             <span class="star"
                   :class="{ selected: x - 1 < rating }"
                   :data-index-half="x"></span>
@@ -180,6 +179,12 @@ Vue.component("rating", {
   `
 });
 
-new Vue({
-  el: ".app"
+document.addEventListener('DOMContentLoaded', () => {
+  console.log('Book page DOM loaded');
+  const app = document.querySelector('#rating-app');
+  if (app) {
+    new Vue({ el: '#rating-app' });
+  } else {
+    console.error('Rating app element not found');
+  }
 });
